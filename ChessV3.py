@@ -208,9 +208,9 @@ def parse_voice_move(command, board):
 # Continuously listens for voice input while listening is enabled
 def listen_loop(board):
     global listening
-    while listening:
+    while listening and not board.is_game_over():
         command = listen_for_move(board)
-        if not listening:
+        if not listening or board.is_game_over():
             break
         if command:
             move = parse_voice_move(command, board)
@@ -349,6 +349,12 @@ def main():
         if board.is_game_over():
             print("\n" + "=" * 10 + " GAME OVER " + "=" * 10)
             print(f"Result: {board.result()}")
+
+            listening = False
+            if listening_thread and listening_thread.is_alive():
+                listening_thread.join(timeout=1)
+
+            pygame.time.wait(2000)
             running = False
 
         clock.tick(30)
