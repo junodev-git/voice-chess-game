@@ -2,6 +2,9 @@ import pygame
 import chess
 import sys
 import os
+import speech_recognition as sr
+import keyboard
+import threading
 from tkinter import Tk, filedialog
 import cairosvg
 from io import BytesIO
@@ -154,8 +157,79 @@ def draw_highlights(screen, selected_square, legal_moves):
             pygame.draw.circle(surface, LEGAL_MOVE_COLOR, (SQUARE_SIZE // 2, SQUARE_SIZE // 2), SQUARE_SIZE // 4)
             screen.blit(surface, (dest_col * SQUARE_SIZE, dest_row * SQUARE_SIZE))
 
+
+# Function to capture voice input from the user
+def listen_for_move(board):
+    color = "White" if board.turn == chess.WHITE else "Black"
+    print(f"{color}, your move. Please speak...")
+
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        r.adjust_for_ambient_noise(source)
+
+        # Added voice timeout
+        # Must finish before shutdown
+        try:
+            audio = r.listen(source, timeout=5, phrase_time_limit=5)
+        except sr.WaitTimeoutError:
+            return None
+
+    try:
+        command = r.recognize_google(audio)
+        return command.lower()
+    except sr.UnknownValueError:
+        if listening:
+            print("Could not understand the audio.")
+    except sr.RequestError:
+        if listening:
+            print("Speech recognition service is unavailable.")
+    return None
+
+# Parses a spoken command into a valid chess move
+def parse_voice_move(command, board):
+    piece_names = {
+        "pawn": chess.PAWN, "knight": chess.KNIGHT, "bishop": chess.BISHOP,
+        "rook": chess.ROOK, "queen": chess.QUEEN, "king": chess.KING
+    }
+
+    try:
+        for name, p_type in piece_names.items():
+            if name in command:
+                to_square = command.split("to")[-1].strip().replace(" ", "")
+                to_sq = chess.parse_square(to_square)
+                for move in board.legal_moves:
+                    piece = board.piece_at(move.from_square)
+                    if piece and piece.piece_type == p_type and move.to_square == to_sq:
+                        return move
+    except Exception as e:
+        print("Error parsing move:", e)
+    return None
+
+# Continuously listens for voice input while listening is enabled
+def listen_loop(board):
+    global listening
+    while listening and not board.is_game_over():
+        command = listen_for_move(board)
+        if not listening or board.is_game_over():
+            break
+        if command:
+            move = parse_voice_move(command, board)
+            if move and move in board.legal_moves:
+                board.push(move)
+            else:
+                print("⚠️ Invalid or illegal move.")
+
+
+# Global variables used to control voice listening state and threading
+listening = False
+listening_thread = None
+
 # Main Gameplay
 def main():
+
+    # Added threading for voice toggle and listening
+    global listening, listening_thread
+
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("chessSpeak +")
@@ -172,10 +246,29 @@ def main():
     upload_button_rect = pygame.Rect(10, HEIGHT - 50, 180, 40) # Adjusted button width
     upload_font = pygame.font.Font(None, 24)
 
+
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+                global listening
+                listening = False
+
+            # Toggles voice functionality
+            if keyboard.is_pressed('space'):
+                listening = not listening
+                print("Listening ON" if listening else "Listening OFF")
+
+                if listening:
+                    if not listening_thread or not listening_thread.is_alive():
+                        listening_thread = threading.Thread(target=listen_loop, args=(board,))
+                        listening_thread.start()
+                else:
+
+                    pass
+
+                while keyboard.is_pressed('space'):  # prevent multiple toggles on hold
+                    pass
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 pos = pygame.mouse.get_pos()
@@ -256,9 +349,19 @@ def main():
         if board.is_game_over():
             print("\n" + "=" * 10 + " GAME OVER " + "=" * 10)
             print(f"Result: {board.result()}")
+
+            listening = False
+            if listening_thread and listening_thread.is_alive():
+                listening_thread.join(timeout=1)
+
+            pygame.time.wait(2000)
             running = False
 
         clock.tick(30)
+
+    # Stops background audio from running during shutdown
+    if listening_thread and listening_thread.is_alive():
+        listening_thread.join()
 
     pygame.quit()
     sys.exit()
