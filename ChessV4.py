@@ -193,6 +193,19 @@ def parse_voice_move(command, board):
         "rook": chess.ROOK, "queen": chess.QUEEN, "king": chess.KING
     }
 
+    command = command.lower()
+
+    # --- Castling Support ---
+    if "castle kingside" in command or "castle king side" in command:
+        for move in board.legal_moves:
+            if board.is_kingside_castling(move):
+                return move
+    elif "castle queenside" in command or "castle queen side" in command:
+        for move in board.legal_moves:
+            if board.is_queenside_castling(move):
+                return move
+
+    # --- Regular move parsing ---
     try:
         for name, p_type in piece_names.items():
             if name in command:
